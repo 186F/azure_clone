@@ -1,0 +1,380 @@
+:root {
+  --bg-0: #08121b;
+  --bg-1: #0f1e2a;
+  --panel: rgba(15, 31, 45, 0.82);
+  --panel-strong: rgba(10, 22, 33, 0.93);
+  --stroke: rgba(143, 215, 255, 0.28);
+  --text: #e9f4ff;
+  --muted: #9fc0d9;
+  --accent: #5dffd7;
+  --danger: #ff697d;
+  --warn: #ffd86a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 12% 8%, rgba(93, 255, 215, 0.16), transparent 36%),
+    radial-gradient(circle at 88% 18%, rgba(98, 168, 255, 0.2), transparent 40%),
+    linear-gradient(150deg, var(--bg-0), var(--bg-1));
+  padding: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0);
+}
+
+.app-shell {
+  width: min(100%, 760px);
+  margin: 0 auto;
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.title-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 0.65rem;
+  padding: 0.5rem 0.25rem;
+}
+
+.title-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.45rem;
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0.1rem 0 0;
+  font-family: "Aldrich", "Trebuchet MS", sans-serif;
+  font-size: clamp(1.5rem, 6.2vw, 2.1rem);
+  letter-spacing: 0.04em;
+}
+
+h2 {
+  margin: 0;
+  font-family: "Aldrich", "Trebuchet MS", sans-serif;
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ghost-btn,
+.action-btn,
+.dir-btn {
+  border: 1px solid var(--stroke);
+  background: linear-gradient(180deg, rgba(121, 208, 255, 0.22), rgba(28, 72, 104, 0.5));
+  color: var(--text);
+  font-family: inherit;
+  border-radius: 0.9rem;
+  touch-action: manipulation;
+}
+
+.ghost-btn {
+  padding: 0.55rem 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.hud {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.stat-chip {
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 0.85rem;
+  padding: 0.5rem 0.4rem;
+  display: grid;
+  gap: 0.2rem;
+  text-align: center;
+}
+
+.stat-chip span {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.stat-chip strong {
+  font-size: 0.98rem;
+  line-height: 1;
+}
+
+.arena-card,
+.log-card,
+.hint-card,
+.town-card {
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 1rem;
+  overflow: hidden;
+  backdrop-filter: blur(6px);
+}
+
+.town-card {
+  padding: 0.7rem 0.8rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.town-head {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.town-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+
+.upgrade-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.upgrade-item {
+  border: 1px solid rgba(143, 215, 255, 0.22);
+  background: rgba(7, 24, 35, 0.55);
+  border-radius: 0.75rem;
+  padding: 0.5rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.upgrade-copy {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.upgrade-copy h3 {
+  margin: 0;
+  font-family: "Aldrich", "Trebuchet MS", sans-serif;
+  font-size: 0.83rem;
+  color: #d5f2ff;
+}
+
+.upgrade-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.73rem;
+  line-height: 1.25;
+}
+
+.upgrade-level {
+  color: #88dcff;
+}
+
+.upgrade-btn {
+  border: 1px solid var(--stroke);
+  background: linear-gradient(180deg, rgba(121, 208, 255, 0.3), rgba(28, 72, 104, 0.6));
+  color: var(--text);
+  border-radius: 0.7rem;
+  min-height: 2.6rem;
+  min-width: 5.8rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.35rem 0.5rem;
+}
+
+#gameCanvas {
+  width: 100%;
+  aspect-ratio: 13 / 17;
+  display: block;
+  image-rendering: pixelated;
+  touch-action: none;
+  background: linear-gradient(0deg, rgba(3, 13, 20, 0.9), rgba(8, 26, 38, 0.9));
+}
+
+.status-line {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.85rem;
+  border-top: 1px solid rgba(143, 215, 255, 0.16);
+  color: var(--muted);
+  min-height: 3.15rem;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.8rem;
+}
+
+.dpad {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.dir-btn {
+  min-height: 4rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.dir-btn.up {
+  grid-column: 2;
+}
+
+.dir-btn.left {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.dir-btn.right {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.dir-btn.down {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.action-stack {
+  display: grid;
+  grid-template-rows: repeat(4, 1fr);
+  gap: 0.45rem;
+}
+
+.action-btn {
+  min-height: 4rem;
+  padding: 0.55rem;
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+button:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+button:disabled {
+  opacity: 0.45;
+  filter: saturate(0.65);
+}
+
+.controls[data-disabled="true"] {
+  opacity: 0.62;
+}
+
+.log-card {
+  padding: 0.7rem 0.8rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+#logList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.3rem;
+  max-height: 6.75rem;
+  overflow: auto;
+}
+
+#logList li {
+  font-size: 0.83rem;
+  line-height: 1.28;
+  color: #d3e8f9;
+}
+
+.hint-card {
+  padding: 0.65rem 0.8rem;
+}
+
+.hint-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+kbd {
+  border: 1px solid rgba(143, 215, 255, 0.44);
+  border-radius: 0.4rem;
+  padding: 0.05rem 0.3rem;
+  font-size: 0.75rem;
+  color: var(--text);
+  background: rgba(39, 72, 96, 0.65);
+}
+
+.stairs-hint {
+  color: var(--warn);
+}
+
+@media (min-width: 860px) {
+  .app-shell {
+    grid-template-columns: 1.3fr 1fr;
+    grid-template-areas:
+      "title title"
+      "hud hud"
+      "town town"
+      "arena controls"
+      "arena log"
+      "arena hint";
+    align-items: start;
+  }
+
+  .title-bar {
+    grid-area: title;
+  }
+
+  .hud {
+    grid-area: hud;
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+  }
+
+  .town-card {
+    grid-area: town;
+  }
+
+  .arena-card {
+    grid-area: arena;
+  }
+
+  .controls {
+    grid-area: controls;
+    grid-template-columns: 1fr;
+  }
+
+  .dpad {
+    max-width: 18rem;
+  }
+
+  .log-card {
+    grid-area: log;
+  }
+
+  .hint-card {
+    grid-area: hint;
+  }
+}
