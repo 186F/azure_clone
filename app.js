@@ -1,6 +1,7 @@
 const Data = globalThis.MoonlightData;
 const Core = globalThis.MoonlightCore;
 const Systems = globalThis.MoonlightSystems;
+const Renderers = globalThis.MoonlightRenderers;
 
 if (!Data) {
   throw new Error("MoonlightData not found. Ensure game-data.js is loaded before app.js.");
@@ -11,6 +12,11 @@ if (!Core) {
 if (!Systems) {
   throw new Error(
     "MoonlightSystems not found. Ensure systems/*.js files are loaded before app.js.",
+  );
+}
+if (!Renderers) {
+  throw new Error(
+    "MoonlightRenderers not found. Ensure renderer-interface.js is loaded before app.js.",
   );
 }
 
@@ -69,6 +75,7 @@ const dom = {
   logList: document.getElementById("logList"),
   runToggleBtn: document.getElementById("runToggleBtn"),
   audioBtn: document.getElementById("audioBtn"),
+  rendererBtn: document.getElementById("rendererBtn"),
   copySeedBtn: document.getElementById("copySeedBtn"),
   waitBtn: document.getElementById("waitBtn"),
   potionBtn: document.getElementById("potionBtn"),
@@ -77,8 +84,6 @@ const dom = {
   controls: document.querySelector(".controls"),
   dirButtons: [...document.querySelectorAll(".dir-btn")],
 };
-
-const ctx = dom.canvas.getContext("2d");
 
 const state = {
   mode: "town",
@@ -115,6 +120,7 @@ const state = {
     enabled: true,
     context: null,
   },
+  rendererMode: "2d",
   upgradeUi: new Map(),
 };
 
@@ -122,6 +128,168 @@ let touchStartPoint = null;
 let spawnSystem = null;
 let combatSystem = null;
 let runSystem = null;
+let activeRenderer = null;
+let rendererFaulted = false;
+
+function normalizeRendererMode(value) {
+  if (typeof Renderers.normalizeRendererMode === "function") {
+    return Renderers.normalizeRendererMode(value);
+  }
+  const token = String(value || "").trim().toLowerCase();
+  if (token === "3d" || token === "three") return "3d";
+  return "2d";
+}
+
+function resolveInitialRendererMode() {
+  let fromQuery = "";
+  if (typeof Renderers.readRendererModeFromQuery === "function") {
+    fromQuery = Renderers.readRendererModeFromQuery(globalThis.location?.search || "");
+  }
+
+  if (fromQuery) {
+    try {
+      localStorage.setItem(Renderers.RENDERER_STORAGE_KEY || "moonlight_tower_renderer_mode_v1", fromQuery);
+    } catch (_error) {
+      // Ignore storage write failures.
+    }
+    return fromQuery;
+  }
+
+  try {
+    const fromStorage = localStorage.getItem(
+      Renderers.RENDERER_STORAGE_KEY || "moonlight_tower_renderer_mode_v1",
+    );
+    return normalizeRendererMode(fromStorage);
+  } catch (_error) {
+    return "2d";
+  }
+}
+
+function persistRendererMode(mode) {
+  const normalized = normalizeRendererMode(mode);
+  try {
+    localStorage.setItem(Renderers.RENDERER_STORAGE_KEY || "moonlight_tower_renderer_mode_v1", normalized);
+  } catch (_error) {
+    // Ignore storage failures.
+  }
+}
+
+function createRenderer(mode) {
+  const normalized = normalizeRendererMode(mode);
+  const baseConfig = {
+    canvas: dom.canvas,
+    state,
+    constants: {
+      MAP_WIDTH,
+      MAP_HEIGHT,
+      SPRITE_SIZE,
+      TILE_WALL,
+      TILE_STAIRS,
+    },
+    helpers: {
+      getUpgradeLevel,
+    },
+  };
+
+  if (normalized === "3d") {
+    if (typeof Renderers.createThreeRenderer !== "function") {
+      throw new Error("Three renderer factory is unavailable.");
+    }
+    return Renderers.createThreeRenderer(baseConfig);
+  }
+
+  if (typeof Renderers.createCanvas2DRenderer !== "function") {
+    throw new Error("Canvas renderer factory is unavailable.");
+  }
+  return Renderers.createCanvas2DRenderer(baseConfig);
+}
+
+function switchRendererMode(mode, { reload = false } = {}) {
+  const normalized = normalizeRendererMode(mode);
+  persistRendererMode(normalized);
+
+  if (reload) {
+    const url = new URL(globalThis.location.href);
+    url.searchParams.set("renderer", normalized === "3d" ? "three" : "2d");
+    globalThis.location.href = url.toString();
+    return;
+  }
+
+  state.rendererMode = normalized;
+}
+
+function initializeRenderer(mode) {
+  let requestedMode = normalizeRendererMode(mode);
+  let renderer = null;
+  let warning = "";
+
+  try {
+    renderer = createRenderer(requestedMode);
+  } catch (error) {
+    warning = `Renderer "${requestedMode}" unavailable. Falling back to 2D.`;
+    requestedMode = "2d";
+    renderer = createRenderer("2d");
+    console.error(error);
+  }
+
+  state.rendererMode = requestedMode;
+  activeRenderer = renderer;
+  rendererFaulted = false;
+  syncUi();
+
+  return activeRenderer.init().then((ready) => {
+    if (warning) {
+      logEvent(warning);
+      setStatus(warning);
+      syncUi();
+    }
+
+    if (ready === false && requestedMode === "2d") {
+      logEvent("Sprite atlas failed to load. Using fallback tile drawing.");
+      syncUi();
+    }
+    activeRenderer.resize();
+    return true;
+  });
+}
+
+function handleResize() {
+  if (activeRenderer) {
+    activeRenderer.resize();
+  }
+}
+
+function fallbackToCanvasRenderer(error) {
+  if (rendererFaulted) return;
+  rendererFaulted = true;
+  console.error(error);
+
+  try {
+    if (activeRenderer?.destroy) {
+      activeRenderer.destroy();
+    }
+  } catch (_destroyError) {
+    // Continue fallback even if destroy fails.
+  }
+
+  const fallback = createRenderer("2d");
+  activeRenderer = fallback;
+  state.rendererMode = "2d";
+  persistRendererMode("2d");
+  setStatus("3D renderer failed; switched to 2D.");
+  logEvent("Renderer fallback: 3D -> 2D.");
+  syncUi();
+  fallback.init().then(() => {
+    fallback.resize();
+  });
+}
+
+function toggleRendererMode() {
+  const nextMode = state.rendererMode === "3d" ? "2d" : "3d";
+  setStatus(`Switching renderer to ${nextMode.toUpperCase()}...`);
+  syncUi();
+  switchRendererMode(nextMode, { reload: true });
+}
 
 function ensureSystems() {
   if (!spawnSystem) {
@@ -1973,7 +2141,16 @@ function syncUi() {
     ? `W:${weaponLabel} S:${shieldLabel}.`
     : "";
   const inventoryHint = towerMode ? `Selected: ${selectedLabel}.` : "";
-  dom.statusLine.textContent = [state.status, compassHint, floorHint, inventoryHint, equipmentHint, familiarHint]
+  const rendererHint = `Render: ${state.rendererMode.toUpperCase()}.`;
+  dom.statusLine.textContent = [
+    state.status,
+    compassHint,
+    floorHint,
+    inventoryHint,
+    equipmentHint,
+    familiarHint,
+    rendererHint,
+  ]
     .filter(Boolean)
     .join(" ");
 
@@ -2001,6 +2178,9 @@ function syncUi() {
   dom.controls.dataset.disabled = inAction ? "false" : "true";
 
   dom.audioBtn.textContent = state.audio.enabled ? "SFX: On" : "SFX: Off";
+  if (dom.rendererBtn) {
+    dom.rendererBtn.textContent = `Render: ${state.rendererMode.toUpperCase()}`;
+  }
   dom.townCard.dataset.mode = state.mode;
 
   syncUpgradeUi();
@@ -2073,360 +2253,14 @@ function toggleAudio() {
   syncUi();
 }
 
-function loadSprites() {
-  return new Promise((resolve) => {
-    const image = new Image();
-    image.onload = () => {
-      state.sprites.image = image;
-      state.sprites.ready = true;
-      resolve(true);
-    };
-    image.onerror = () => {
-      state.sprites.ready = false;
-      resolve(false);
-    };
-    image.src = "assets/sprites.svg";
-  });
-}
-
-function resizeCanvas() {
-  const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
-  const cssWidth = dom.canvas.clientWidth;
-  const cssHeight = dom.canvas.clientHeight;
-  const targetWidth = Math.floor(cssWidth * dpr);
-  const targetHeight = Math.floor(cssHeight * dpr);
-
-  if (dom.canvas.width !== targetWidth || dom.canvas.height !== targetHeight) {
-    dom.canvas.width = targetWidth;
-    dom.canvas.height = targetHeight;
-  }
-
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.imageSmoothingEnabled = false;
-  state.tileWidth = cssWidth / MAP_WIDTH;
-  state.tileHeight = cssHeight / MAP_HEIGHT;
-}
-
-function drawSprite(frameX, frameY, dx, dy, dw, dh, alpha = 1) {
-  if (!state.sprites.ready || !state.sprites.image) return false;
-
-  ctx.save();
-  if (alpha !== 1) {
-    ctx.globalAlpha = alpha;
-  }
-
-  ctx.drawImage(
-    state.sprites.image,
-    frameX * SPRITE_SIZE,
-    frameY * SPRITE_SIZE,
-    SPRITE_SIZE,
-    SPRITE_SIZE,
-    dx,
-    dy,
-    dw,
-    dh,
-  );
-  ctx.restore();
-  return true;
-}
-
-function drawTile(x, y, value, tick) {
-  const px = x * state.tileWidth;
-  const py = y * state.tileHeight;
-
-  if (!state.sprites.ready) {
-    if (value === TILE_WALL) {
-      const shade = (x + y) % 2 === 0 ? "#0d1d29" : "#112431";
-      ctx.fillStyle = shade;
-      ctx.fillRect(px, py, state.tileWidth, state.tileHeight);
-      return;
-    }
-
-    const floorShade = (x + y) % 2 === 0 ? "#1a394a" : "#173446";
-    ctx.fillStyle = floorShade;
-    ctx.fillRect(px, py, state.tileWidth, state.tileHeight);
-
-    if (value === TILE_STAIRS) {
-      const pulse = 0.42 + Math.sin(tick * 0.004) * 0.15;
-      ctx.fillStyle = `rgba(250, 220, 108, ${pulse})`;
-      ctx.fillRect(
-        px + state.tileWidth * 0.18,
-        py + state.tileHeight * 0.18,
-        state.tileWidth * 0.64,
-        state.tileHeight * 0.64,
-      );
-    }
-    return;
-  }
-
-  if (value === TILE_WALL) {
-    drawSprite(1, 0, px, py, state.tileWidth, state.tileHeight);
-    return;
-  }
-
-  drawSprite(0, 0, px, py, state.tileWidth, state.tileHeight);
-
-  if (value === TILE_STAIRS) {
-    const pulse = 0.76 + Math.sin(tick * 0.006) * 0.2;
-    drawSprite(2, 0, px, py, state.tileWidth, state.tileHeight, pulse);
-  }
-}
-
-function drawHealthBar(entity, color) {
-  const px = entity.x * state.tileWidth;
-  const py = entity.y * state.tileHeight;
-  const width = state.tileWidth * 0.74;
-  const height = Math.max(2, state.tileHeight * 0.09);
-  const ratio = Math.max(0, Math.min(1, entity.hp / entity.maxHp));
-
-  ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
-  ctx.fillRect(px + state.tileWidth * 0.13, py + state.tileHeight * 0.08, width, height);
-
-  ctx.fillStyle = color;
-  ctx.fillRect(px + state.tileWidth * 0.13, py + state.tileHeight * 0.08, width * ratio, height);
-}
-
-function drawItems(tick) {
-  for (const item of state.items) {
-    const kind = item.item?.kind || "consumable";
-    const wobble = Math.sin((tick + (item.x + item.y) * 95) * 0.01) * state.tileHeight * 0.05;
-    const px = item.x * state.tileWidth;
-    const py = item.y * state.tileHeight + wobble;
-
-    if (!drawSprite(3, 0, px, py, state.tileWidth, state.tileHeight)) {
-      if (kind === "escape") {
-        ctx.fillStyle = "#9fd4ff";
-      } else if (kind === "weapon" || kind === "shield") {
-        ctx.fillStyle = "#ffd77d";
-      } else if (kind === "throwable") {
-        ctx.fillStyle = "#ff9666";
-      } else if (kind === "augment") {
-        ctx.fillStyle = "#ffe37a";
-      } else if (kind === "familiarRole") {
-        ctx.fillStyle = "#9cf0d8";
-      } else if (kind === "identify" || kind === "purify") {
-        ctx.fillStyle = "#9fcbff";
-      } else {
-        ctx.fillStyle = "#81f0ff";
-      }
-      ctx.fillRect(
-        px + state.tileWidth * 0.36,
-        py + state.tileHeight * 0.26,
-        state.tileWidth * 0.28,
-        state.tileHeight * 0.42,
-      );
-    }
-  }
-}
-
-function drawShrines(tick) {
-  if (state.mode !== "tower" || state.shrines.length === 0) return;
-
-  for (const shrine of state.shrines) {
-    const px = shrine.x * state.tileWidth;
-    const py = shrine.y * state.tileHeight;
-    const pulse = 0.35 + Math.sin((tick + (shrine.x + shrine.y) * 45) * 0.01) * 0.2;
-    const alpha = shrine.used ? 0.28 : 0.5 + pulse * 0.3;
-
-    if (shrine.type === "healing") {
-      ctx.fillStyle = `rgba(126, 240, 172, ${alpha})`;
-    } else if (shrine.type === "forge") {
-      ctx.fillStyle = `rgba(255, 178, 102, ${alpha})`;
-    } else if (shrine.type === "oracle") {
-      ctx.fillStyle = `rgba(142, 186, 255, ${alpha})`;
-    } else {
-      ctx.fillStyle = `rgba(190, 164, 255, ${alpha})`;
-    }
-
-    ctx.fillRect(
-      px + state.tileWidth * 0.2,
-      py + state.tileHeight * 0.2,
-      state.tileWidth * 0.6,
-      state.tileHeight * 0.6,
-    );
-
-    ctx.strokeStyle = shrine.used ? "rgba(214, 225, 240, 0.4)" : "rgba(246, 252, 255, 0.88)";
-    ctx.lineWidth = Math.max(1, state.tileWidth * 0.045);
-    ctx.strokeRect(
-      px + state.tileWidth * 0.26,
-      py + state.tileHeight * 0.26,
-      state.tileWidth * 0.48,
-      state.tileHeight * 0.48,
-    );
-  }
-}
-
-function drawTraps(tick) {
-  if (state.mode !== "tower") return;
-  const revealHidden = getUpgradeLevel("watchtower") >= 3;
-
-  for (const trap of state.traps) {
-    if (!trap.revealed && !revealHidden) continue;
-    const px = trap.x * state.tileWidth;
-    const py = trap.y * state.tileHeight;
-    const pulse = 0.35 + Math.sin((tick + (trap.x + trap.y) * 35) * 0.008) * 0.15;
-
-    if (trap.type === "spike") {
-      ctx.fillStyle = trap.revealed ? `rgba(255, 116, 116, ${0.5 + pulse})` : "rgba(255, 116, 116, 0.22)";
-      ctx.fillRect(
-        px + state.tileWidth * 0.22,
-        py + state.tileHeight * 0.22,
-        state.tileWidth * 0.56,
-        state.tileHeight * 0.56,
-      );
-      continue;
-    }
-
-    if (trap.type === "snare") {
-      ctx.strokeStyle = trap.revealed ? `rgba(255, 212, 106, ${0.55 + pulse})` : "rgba(255, 212, 106, 0.24)";
-      ctx.lineWidth = Math.max(1, state.tileWidth * 0.05);
-      ctx.beginPath();
-      ctx.arc(
-        px + state.tileWidth * 0.5,
-        py + state.tileHeight * 0.5,
-        state.tileWidth * 0.22,
-        0,
-        Math.PI * 2,
-      );
-      ctx.stroke();
-      continue;
-    }
-
-    if (trap.type === "warp") {
-      ctx.fillStyle = trap.revealed ? `rgba(127, 188, 255, ${0.45 + pulse})` : "rgba(127, 188, 255, 0.2)";
-      ctx.beginPath();
-      ctx.moveTo(px + state.tileWidth * 0.5, py + state.tileHeight * 0.2);
-      ctx.lineTo(px + state.tileWidth * 0.82, py + state.tileHeight * 0.5);
-      ctx.lineTo(px + state.tileWidth * 0.5, py + state.tileHeight * 0.8);
-      ctx.lineTo(px + state.tileWidth * 0.18, py + state.tileHeight * 0.5);
-      ctx.closePath();
-      ctx.fill();
-    }
-  }
-}
-
-function drawEntities(tick) {
-  if (!state.player || !state.familiar) return;
-
-  const playerFrame = state.mode === "tower" ? Math.floor(tick / 240) % 2 : 1;
-  const familiarFrame = state.familiar.alive ? Math.floor(tick / 300) % 2 : 3;
-
-  for (const monster of state.monsters) {
-    const bob = Math.sin((tick + monster.id * 77) * 0.01) * state.tileHeight * 0.05;
-    const mx = monster.x * state.tileWidth;
-    const my = monster.y * state.tileHeight + bob;
-
-    if (!drawSprite(monster.variant, 3, mx, my, state.tileWidth, state.tileHeight)) {
-      ctx.fillStyle = "#ff6f88";
-      ctx.fillRect(
-        mx + state.tileWidth * 0.2,
-        my + state.tileHeight * 0.2,
-        state.tileWidth * 0.6,
-        state.tileHeight * 0.6,
-      );
-    }
-
-    if (monster.elite) {
-      ctx.strokeStyle = "rgba(255, 230, 126, 0.9)";
-      ctx.lineWidth = Math.max(1, state.tileWidth * 0.06);
-      ctx.strokeRect(
-        mx + state.tileWidth * 0.15,
-        my + state.tileHeight * 0.15,
-        state.tileWidth * 0.7,
-        state.tileHeight * 0.7,
-      );
-    }
-
-    if ((monster.stunTurns || 0) > 0) {
-      ctx.strokeStyle = "rgba(140, 205, 255, 0.85)";
-      ctx.lineWidth = Math.max(1, state.tileWidth * 0.04);
-      ctx.beginPath();
-      ctx.arc(
-        mx + state.tileWidth * 0.5,
-        my + state.tileHeight * 0.5,
-        state.tileWidth * 0.3,
-        0,
-        Math.PI * 2,
-      );
-      ctx.stroke();
-    }
-  }
-
-  if (state.familiar.alive) {
-    const fx = state.familiar.x * state.tileWidth;
-    const fy = state.familiar.y * state.tileHeight;
-    if (!drawSprite(familiarFrame, 2, fx, fy, state.tileWidth, state.tileHeight)) {
-      ctx.fillStyle = "#74ff95";
-      ctx.fillRect(
-        fx + state.tileWidth * 0.2,
-        fy + state.tileHeight * 0.2,
-        state.tileWidth * 0.6,
-        state.tileHeight * 0.6,
-      );
-    }
-  }
-
-  const px = state.player.x * state.tileWidth;
-  const py = state.player.y * state.tileHeight;
-  if (!drawSprite(playerFrame, 1, px, py, state.tileWidth, state.tileHeight)) {
-    ctx.fillStyle = "#62c8ff";
-    ctx.fillRect(
-      px + state.tileWidth * 0.18,
-      py + state.tileHeight * 0.18,
-      state.tileWidth * 0.64,
-      state.tileHeight * 0.64,
-    );
-  }
-
-  if (state.mode !== "tower") return;
-
-  if (state.familiar.alive) {
-    drawHealthBar(state.familiar, "#8fffa8");
-  }
-
-  for (const monster of state.monsters) {
-    drawHealthBar(monster, "#ff7f92");
-  }
-
-  drawHealthBar(state.player, "#85d7ff");
-}
-
-function drawOverlay() {
-  if (state.mode !== "town") return;
-
-  ctx.fillStyle = "rgba(4, 11, 18, 0.55)";
-  ctx.fillRect(0, 0, dom.canvas.clientWidth, dom.canvas.clientHeight);
-
-  ctx.fillStyle = "#d4f2ff";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.font = "700 22px Aldrich";
-  ctx.fillText("Monsbaiya Town", dom.canvas.clientWidth / 2, dom.canvas.clientHeight / 2 - 10);
-
-  ctx.font = "500 12px Space Grotesk";
-  ctx.fillText(
-    "Spend gold on upgrades, then enter tower.",
-    dom.canvas.clientWidth / 2,
-    dom.canvas.clientHeight / 2 + 16,
-  );
-}
-
 function render(tick = 0) {
-  resizeCanvas();
-
-  ctx.clearRect(0, 0, dom.canvas.clientWidth, dom.canvas.clientHeight);
-
-  for (let y = 0; y < MAP_HEIGHT; y += 1) {
-    for (let x = 0; x < MAP_WIDTH; x += 1) {
-      drawTile(x, y, state.map[y][x], tick);
+  if (activeRenderer) {
+    try {
+      activeRenderer.render(tick);
+    } catch (error) {
+      fallbackToCanvasRenderer(error);
     }
   }
-
-  drawItems(tick);
-  drawTraps(tick);
-  drawShrines(tick);
-  drawEntities(tick);
-  drawOverlay();
 
   requestAnimationFrame(render);
 }
@@ -2458,6 +2292,9 @@ function bindInputs() {
   bindControl(dom.runToggleBtn, toggleRunState);
 
   bindControl(dom.audioBtn, toggleAudio, false);
+  if (dom.rendererBtn) {
+    bindControl(dom.rendererBtn, toggleRendererMode, false);
+  }
 
   if (dom.copySeedBtn) {
     bindControl(
@@ -2564,6 +2401,11 @@ function bindInputs() {
       handled = true;
     }
 
+    if (key === "v") {
+      toggleRendererMode();
+      handled = true;
+    }
+
     if (handled) {
       primeAudio();
       event.preventDefault();
@@ -2600,11 +2442,12 @@ function bindInputs() {
     { passive: true },
   );
 
-  window.addEventListener("resize", resizeCanvas);
+  window.addEventListener("resize", handleResize);
 }
 
 function initializeGame() {
   ensureSystems();
+  state.rendererMode = resolveInitialRendererMode();
   buildUpgradeUi();
   bindInputs();
 
@@ -2613,11 +2456,11 @@ function initializeGame() {
   logEvent("Welcome to Monsbaiya.");
   syncUi();
 
-  loadSprites().then((loaded) => {
-    if (!loaded) {
-      logEvent("Sprite atlas failed to load. Using fallback renderer.");
-      syncUi();
-    }
+  initializeRenderer(state.rendererMode).catch((error) => {
+    console.error(error);
+    setStatus("Renderer initialization failed.");
+    logEvent("Renderer initialization failed.");
+    syncUi();
   });
 
   requestAnimationFrame(render);

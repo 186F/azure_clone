@@ -43,6 +43,8 @@ Then visit `http://localhost:8000`.
 - Persistent stash/salvage carryover between runs
 - Touch controls, keyboard controls, swipe movement
 - Sprite-atlas rendering from `assets/sprites.svg`
+- Renderer abstraction with `2D Canvas` and `Three.js` modes
+- 3D mode includes tile/entity rendering, traps/shrines/items, elite/stun markers, and HP bars
 - Web Audio SFX with runtime toggle
 
 ## Controls
@@ -56,6 +58,7 @@ Then visit `http://localhost:8000`.
 - Keyboard retreat/enter toggle: `T`
 - Keyboard enter run from town: `Enter`
 - Keyboard SFX toggle: `M`
+- Keyboard renderer switch: `V` (reloads with alternate mode)
 
 ## Architecture
 
@@ -64,6 +67,10 @@ Then visit `http://localhost:8000`.
 - `systems/spawn.js`: spawn and floor-cell selection logic (including elites and shrines)
 - `systems/combat.js`: damage, defeat, XP, familiar progression hooks, and AI turn logic
 - `systems/run.js`: turn resolution, floor pressure, and run-end settlement
+- `renderers/renderer-interface.js`: renderer mode selection helpers
+- `renderers/canvas2d-renderer.js`: legacy canvas renderer implementation
+- `renderers/three-assets.js`: shared Three.js geometry/material factory
+- `renderers/three-renderer.js`: orthographic Three.js renderer
 - `app.js`: UI wiring, rendering, input handling, persistence, orchestration
 - `assets/sprites.svg`: sprite sheet
 
@@ -74,8 +81,18 @@ Then visit `http://localhost:8000`.
 - Mirror sync: `./scripts/sync-mirror.sh`
 - Core deterministic tests: `node ./scripts/core-tests.js`
 - Data integrity checks: `node ./scripts/data-tests.js`
+- Determinism parity check: `node ./scripts/renderer-parity.js`
 - Balance simulation: `node ./scripts/simulate-runs.js --runs=500 --seed=trial`
 - Upgrade-tier comparison report: `./scripts/balance-report.sh`
+
+## Renderer Mode
+
+- Default mode is `2D` unless a preference was saved.
+- Force mode via query param:
+  - `?renderer=2d`
+  - `?renderer=three` (or `?renderer=3d`)
+- Renderer preference is saved in `localStorage`.
+- Three.js is loaded from CDN in `index.html`; offline play will automatically fall back to `2D`.
 
 ## Mirror Workflow
 

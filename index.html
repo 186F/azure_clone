@@ -22,6 +22,7 @@
         <div class="title-actions">
           <button id="runToggleBtn" class="ghost-btn" type="button">Enter Tower</button>
           <button id="audioBtn" class="ghost-btn" type="button">SFX: On</button>
+          <button id="rendererBtn" class="ghost-btn" type="button">Render: 2D</button>
           <button id="copySeedBtn" class="ghost-btn" type="button">Copy Seed</button>
         </div>
       </header>
@@ -77,7 +78,7 @@
         <p>
           Keyboard: Arrow keys/WASD to move, <kbd>Space</kbd> to wait, <kbd>H</kbd> to use item,
           <kbd>Q</kbd>/<kbd>E</kbd> to cycle inventory. <kbd>T</kbd> retreats, <kbd>Enter</kbd>
-          starts a run, <kbd>M</kbd> toggles SFX.
+          starts a run, <kbd>M</kbd> toggles SFX, <kbd>V</kbd> switches renderer mode.
         </p>
       </section>
     </main>
@@ -87,6 +88,11 @@
     <script src="systems/spawn.js"></script>
     <script src="systems/combat.js"></script>
     <script src="systems/run.js"></script>
+    <script src="renderers/renderer-interface.js"></script>
+    <script src="renderers/canvas2d-renderer.js"></script>
+    <script src="https://unpkg.com/three@0.161.0/build/three.min.js"></script>
+    <script src="renderers/three-assets.js"></script>
+    <script src="renderers/three-renderer.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
