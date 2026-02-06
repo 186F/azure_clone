@@ -92,7 +92,7 @@ Then visit `http://localhost:8000`.
   - `?renderer=2d`
   - `?renderer=three` (or `?renderer=3d`)
 - Renderer preference is saved in `localStorage`.
-- Three.js is loaded from CDN in `index.html`; offline play will automatically fall back to `2D`.
+- Three.js is loaded at runtime from multiple sources; if none are reachable, the app automatically falls back to `2D`.
 
 ## Mirror Workflow
 

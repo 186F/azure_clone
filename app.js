@@ -130,6 +130,14 @@ let combatSystem = null;
 let runSystem = null;
 let activeRenderer = null;
 let rendererFaulted = false;
+let threeRuntimeLoadPromise = null;
+
+const THREE_RUNTIME_SOURCES = [
+  "vendor/three.min.js",
+  "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js",
+  "https://unpkg.com/three@0.161.0/build/three.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/three.js/r161/three.min.js",
+];
 
 function normalizeRendererMode(value) {
   if (typeof Renderers.normalizeRendererMode === "function") {
@@ -172,6 +180,83 @@ function persistRendererMode(mode) {
   } catch (_error) {
     // Ignore storage failures.
   }
+}
+
+function loadExternalScript(src, timeoutMs = 9000) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[data-runtime-src="${src}"]`);
+    if (existing) {
+      if (existing.dataset.runtimeLoaded === "true") {
+        resolve(true);
+        return;
+      }
+      existing.addEventListener("load", () => resolve(true), { once: true });
+      existing.addEventListener("error", () => reject(new Error(`Failed to load ${src}`)), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.async = true;
+    script.src = src;
+    script.dataset.runtimeSrc = src;
+    script.crossOrigin = "anonymous";
+    script.referrerPolicy = "no-referrer";
+
+    const timer = globalThis.setTimeout(() => {
+      script.remove();
+      reject(new Error(`Timed out loading ${src}`));
+    }, timeoutMs);
+
+    script.addEventListener(
+      "load",
+      () => {
+        globalThis.clearTimeout(timer);
+        script.dataset.runtimeLoaded = "true";
+        resolve(true);
+      },
+      { once: true },
+    );
+    script.addEventListener(
+      "error",
+      () => {
+        globalThis.clearTimeout(timer);
+        reject(new Error(`Failed to load ${src}`));
+      },
+      { once: true },
+    );
+
+    document.head.append(script);
+  });
+}
+
+async function ensureThreeRuntime() {
+  if (globalThis.THREE) {
+    return true;
+  }
+
+  if (threeRuntimeLoadPromise) {
+    return threeRuntimeLoadPromise;
+  }
+
+  threeRuntimeLoadPromise = (async () => {
+    for (const src of THREE_RUNTIME_SOURCES) {
+      try {
+        await loadExternalScript(src);
+      } catch (_error) {
+        continue;
+      }
+      if (globalThis.THREE) {
+        return true;
+      }
+    }
+    return false;
+  })();
+
+  const loaded = await threeRuntimeLoadPromise;
+  if (!loaded) {
+    threeRuntimeLoadPromise = null;
+  }
+  return loaded;
 }
 
 function createRenderer(mode) {
@@ -218,15 +303,24 @@ function switchRendererMode(mode, { reload = false } = {}) {
   state.rendererMode = normalized;
 }
 
-function initializeRenderer(mode) {
+async function initializeRenderer(mode) {
   let requestedMode = normalizeRendererMode(mode);
   let renderer = null;
   let warning = "";
 
   try {
+    if (requestedMode === "3d") {
+      const loadedThree = await ensureThreeRuntime();
+      if (!loadedThree || !globalThis.THREE) {
+        throw new Error("Three.js runtime could not be loaded from available sources.");
+      }
+    }
     renderer = createRenderer(requestedMode);
   } catch (error) {
-    warning = `Renderer "${requestedMode}" unavailable. Falling back to 2D.`;
+    warning =
+      requestedMode === "3d"
+        ? 'Renderer "3d" unavailable (Three.js failed to load). Falling back to 2D.'
+        : `Renderer "${requestedMode}" unavailable. Falling back to 2D.`;
     requestedMode = "2d";
     renderer = createRenderer("2d");
     console.error(error);
@@ -237,20 +331,20 @@ function initializeRenderer(mode) {
   rendererFaulted = false;
   syncUi();
 
-  return activeRenderer.init().then((ready) => {
-    if (warning) {
-      logEvent(warning);
-      setStatus(warning);
-      syncUi();
-    }
+  const ready = await activeRenderer.init();
 
-    if (ready === false && requestedMode === "2d") {
-      logEvent("Sprite atlas failed to load. Using fallback tile drawing.");
-      syncUi();
-    }
-    activeRenderer.resize();
-    return true;
-  });
+  if (warning) {
+    logEvent(warning);
+    setStatus(warning);
+    syncUi();
+  }
+
+  if (ready === false && requestedMode === "2d") {
+    logEvent("Sprite atlas failed to load. Using fallback tile drawing.");
+    syncUi();
+  }
+  activeRenderer.resize();
+  return true;
 }
 
 function handleResize() {
